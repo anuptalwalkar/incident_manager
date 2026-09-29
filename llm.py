@@ -53,6 +53,7 @@ class LLM:
         out = self.client.chat.completions.create(
             model=self.model,
             temperature=0,
+            max_tokens=600,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": EXTRACT_PROMPT.format(predicates=predicates)},
@@ -69,6 +70,7 @@ class LLM:
         return self.client.chat.completions.create(
             model=self.model,
             temperature=0,
+            max_tokens=400,
             messages=[
                 {"role": "system", "content": ANSWER_PROMPT.format(context=context)},
                 {"role": "user", "content": question},

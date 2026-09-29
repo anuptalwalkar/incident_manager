@@ -1,0 +1,37 @@
+{
+  "suspected_cause": {
+    "cardinality": "single",
+    "value_type": "string",
+    "description": "The team's current best explanation of what is causing the incident"
+  },
+  "severity": {
+    "cardinality": "single",
+    "value_type": "string",
+    "description": "Incident severity level, such as SEV1 or SEV2"
+  },
+  "incident_commander": {
+    "cardinality": "single",
+    "value_type": "string",
+    "description": "The person running the incident response"
+  },
+  "mitigation_status": {
+    "cardinality": "single",
+    "value_type": "string",
+    "description": "What is being done to fix the incident, or whether it is resolved"
+  },
+  "customer_impact": {
+    "cardinality": "single",
+    "value_type": "string",
+    "description": "What customers are experiencing right now"
+  },
+  "affected_region": {
+    "cardinality": "multi",
+    "value_type": "string",
+    "description": "A cloud region that is currently affected, such as us-east-1"
+  },
+  "affected_service": {
+    "cardinality": "multi",
+    "value_type": "string",
+    "description": "A service that is currently affected, such as checkout"
+  }
+}

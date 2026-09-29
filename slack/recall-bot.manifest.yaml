@@ -1,0 +1,26 @@
+display_information:
+  name: Recall Bot
+  description: "Incident memory on Polign Recall: current facts, corrections, and history"
+features:
+  bot_user:
+    display_name: recall-bot
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - pins:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

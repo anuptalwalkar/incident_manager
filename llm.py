@@ -1,0 +1,75 @@
+"""Model calls: fact extraction and answers.
+
+Uses OpenRouter when OPENROUTER_API_KEY is set, otherwise the OpenAI API
+(OPENAI_API_KEY). LLM_MODEL overrides the model.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+from openai import OpenAI
+
+EXTRACT_PROMPT = """You maintain the fact sheet for a live production incident, from messages in the incident channel.
+
+Allowed predicates (JSON):
+{predicates}
+
+Given the current facts and one new message, propose the fact updates the message states.
+Rules:
+- Use only the allowed predicates. Values are short strings unless value_type says number or boolean.
+- evidence must be an exact, contiguous quote copied character for character from the message.
+- For a single-valued predicate, a new value replaces the old one, so just state the new value.
+- For multi-valued predicates, when the message says a current value no longer applies (recovered, ruled out, not affected), put it in removals using the exact current value.
+- Questions, requests to bots, and chatter produce no statements.
+
+Reply in JSON as {{"statements": [{{"predicate": "...", "value": "...", "evidence": "..."}}], "removals": [{{"predicate": "...", "value": "..."}}]}}."""
+
+ANSWER_PROMPT = """You are an incident bot in an SRE team's incident channel.
+Answer using only the context below. Be brief: at most three short lines, Slack formatting.
+If the context does not answer the question, say you do not know.
+
+Context:
+{context}"""
+
+
+class LLM:
+    def __init__(self):
+        if os.environ.get("OPENROUTER_API_KEY"):
+            self.client = OpenAI(base_url="https://openrouter.ai/api/v1",
+                                 api_key=os.environ["OPENROUTER_API_KEY"])
+            default = "openai/gpt-4.1-mini"
+        else:
+            self.client = OpenAI()
+            default = "gpt-4.1-mini"
+        self.model = os.environ.get("LLM_MODEL", default)
+
+    def extract(self, registry: dict, current: dict, author: str, text: str) -> dict:
+        predicates = json.dumps(
+            [{k: p[k] for k in ("predicate", "cardinality", "value_type", "description")} for p in registry.values()])
+        facts = "\n".join(f"- {p}: {', '.join(map(str, vs))}" for p, vs in current.items()) or "(none yet)"
+        out = self.client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": EXTRACT_PROMPT.format(predicates=predicates)},
+                {"role": "user", "content": f"Current facts:\n{facts}\n\nNew message:\n{author}: {text}"},
+            ],
+        ).choices[0].message.content
+        try:
+            proposal = json.loads(out or "{}")
+        except json.JSONDecodeError:
+            return {"statements": [], "removals": []}
+        return {"statements": proposal.get("statements") or [], "removals": proposal.get("removals") or []}
+
+    def answer(self, context: str, question: str) -> str:
+        return self.client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": ANSWER_PROMPT.format(context=context)},
+                {"role": "user", "content": question},
+            ],
+        ).choices[0].message.content.strip()

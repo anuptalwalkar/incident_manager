@@ -1,0 +1,23 @@
+{
+  "channel": "inc-checkout-latency",
+  "people": {
+    "raj": {"name": "Raj (on-call)", "icon": ":pager:"},
+    "maya": {"name": "Maya (SRE)", "icon": ":wrench:"},
+    "leo": {"name": "Leo (incident commander)", "icon": ":rotating_light:"},
+    "dana": {"name": "Dana (VP Eng)", "icon": ":briefcase:"}
+  },
+  "steps": [
+    {"who": "raj", "text": "Paging: checkout p99 latency is at 4s in us-east-1. Declaring SEV2."},
+    {"who": "maya", "text": "Looks like the orders database. The connection pool on orders-db is saturated."},
+    {"who": "leo", "text": "I'm taking incident commander. Bumping to SEV1, customers can't complete payment."},
+    {"who": "raj", "text": "eu-west-1 checkout is degraded too."},
+    {"who": "dana", "text": "{recall} {naive} what's the root cause and which regions are affected?", "ask": true},
+    {"who": "maya", "text": "Correction: orders-db is healthy, the pool saturation is a symptom. Root cause is DNS: resolver timeouts since this morning's CoreDNS config change.", "mark": "before_correction"},
+    {"who": "raj", "text": "eu-west-1 has recovered, that was an unrelated blip. Only us-east-1 is affected."},
+    {"who": "dana", "text": "{recall} {naive} what's the root cause and which regions are affected?", "ask": true},
+    {"who": "dana", "text": "{recall} {naive} draft a status page update", "ask": true},
+    {"who": "leo", "text": "Rolling back the CoreDNS config now."},
+    {"who": "raj", "text": "Rollback done. Checkout latency is back to normal, monitoring for 15 minutes."},
+    {"who": "leo", "text": "{recall} postmortem", "ask": true}
+  ]
+}

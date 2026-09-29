@@ -11,6 +11,7 @@ oauth_config:
       - chat:write
       - chat:write.customize
       - channels:read
+      - channels:join
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false

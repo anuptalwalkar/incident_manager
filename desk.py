@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from judge import Judge
 from llm import LLM
 from memory import Change, IncidentMemory, parse_time
-from naive import NaiveMemory
+from naive import open_naive_memory
 
 STATUS_REQUEST = ("Draft a customer-facing status page update: two or three sentences covering "
                   "impact, cause if known, and what is being done. No internal names. Plain text, no bold.")
@@ -20,7 +20,7 @@ STATUS_REQUEST = ("Draft a customer-facing status page update: two or three sent
 class Desk:
     def __init__(self, data_dir: str = "data"):
         self.memory = IncidentMemory(data_dir)
-        self.naive = NaiveMemory()
+        self.naive = open_naive_memory()
         self.llm = LLM()
         self.judge = Judge(self.llm)
         self.changes: dict[str, list[Change]] = {}
@@ -112,6 +112,8 @@ class Desk:
 
     def close(self) -> None:
         self.memory.close()
+        if hasattr(self.naive, "close"):
+            self.naive.close()
 
 
 def _wants_status(low: str) -> bool:

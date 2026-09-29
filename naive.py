@@ -44,6 +44,9 @@ class NaiveMemory:
             self._notes[subject].append(f"{label} {r.get('value')} no longer applies")
 
     def search(self, subject: str, query: str) -> list[str]:
+        return [note for note, _ in self.search_scored(subject, query)]
+
+    def search_scored(self, subject: str, query: str) -> list[tuple[str, float]]:
         notes = self._notes.get(subject, [])
         if not notes:
             return []
@@ -59,4 +62,4 @@ class NaiveMemory:
             if score > 0:
                 scored.append((score, i))
         scored.sort(key=lambda x: -x[0])
-        return [notes[i] for _, i in scored[: self.k]]
+        return [(notes[i], score) for score, i in scored[: self.k]]

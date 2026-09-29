@@ -67,12 +67,16 @@ class IncidentMemory:
 
     # ---- reads -------------------------------------------------------------
 
+    def beliefs(self, subject: str, as_of: datetime | None = None) -> list:
+        """The raw Recall rows believed now (or as_of), incident predicates only."""
+        return [b for b in self.client.recall(subject, as_of=as_of, limit=100)
+                if b.predicate in self.registry]
+
     def facts(self, subject: str, as_of: datetime | None = None) -> dict[str, list[Any]]:
         """Current (or as_of) facts, grouped by predicate."""
         grouped: dict[str, list[Any]] = {}
-        for belief in self.client.recall(subject, as_of=as_of, limit=100):
-            if belief.predicate in self.registry:
-                grouped.setdefault(belief.predicate, []).append(belief.value)
+        for belief in self.beliefs(subject, as_of):
+            grouped.setdefault(belief.predicate, []).append(belief.value)
         return grouped
 
     def timeline(self, subject: str) -> list[TimelineEntry]:
@@ -83,7 +87,7 @@ class IncidentMemory:
             for event in self.client.history(subject, predicate):
                 replaced = previous if spec["cardinality"] == "single" and not event.retraction else None
                 entries.append(TimelineEntry(
-                    at=_parse_time(event.observed_at),
+                    at=parse_time(event.observed_at),
                     predicate=predicate,
                     value=event.value,
                     retraction=event.retraction,
@@ -201,5 +205,5 @@ def _coerce(value: Any, value_type: str) -> Any:
     return text or None
 
 
-def _parse_time(stamp: str) -> datetime:
+def parse_time(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone()

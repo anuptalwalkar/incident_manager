@@ -32,9 +32,10 @@ def main() -> None:
             print(f"\n\033[1m{person}:\033[0m {text}")
             if step.get("ask"):
                 question = text.replace("@recall-bot", "").replace("@naive-bot", "").strip()
-                print(f"  \033[32mrecall-bot:\033[0m {_indent(desk.recall_reply(subject, question))}")
+                retrieval, reply = desk.recall_reply(subject, question)
+                _show("recall-bot", "32", retrieval, reply)
                 if "{naive}" in step["text"]:
-                    print(f"  \033[33mnaive-bot:\033[0m  {_indent(desk.naive_reply(subject, question))}")
+                    _show("naive-bot ", "33", *desk.naive_reply(subject, question))
                 continue
             for change in desk.ingest(subject, person, text):
                 print(f"  \033[2m[recall] {change.describe()}\033[0m")
@@ -44,6 +45,12 @@ def main() -> None:
             print(f"  \033[32mrecall-bot:\033[0m {_indent(desk.believed_at(subject, when))}")
     finally:
         desk.close()
+
+
+def _show(name: str, color: str, retrieval: str | None, reply: str) -> None:
+    if retrieval:
+        print(f"  \033[{color}m{name}\033[0m \033[2mretrieved:\n              {_indent(retrieval)}\033[0m")
+    print(f"  \033[{color}m{name}:\033[0m {_indent(reply)}")
 
 
 def _indent(text: str) -> str:

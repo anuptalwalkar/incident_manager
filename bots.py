@@ -33,6 +33,7 @@ log = logging.getLogger("incident_manager")
 IGNORED_SUBTYPES = {"message_changed", "message_deleted", "channel_join", "channel_leave",
                     "channel_topic", "channel_purpose", "pinned_item"}
 STATE = Path("data/state.json")
+SHOW_RETRIEVAL = os.environ.get("SHOW_RETRIEVAL", "1") != "0"
 
 recall_app = App(token=os.environ["RECALL_BOT_TOKEN"])
 naive_app = App(token=os.environ["NAIVE_BOT_TOKEN"])
@@ -95,8 +96,7 @@ def handle(kind: str, event: dict) -> None:
     question = strip_mentions(text)
 
     if kind == "naive":
-        reply = desk.naive_reply(subject, question)
-        naive_app.client.chat_postMessage(channel=channel, text=reply)
+        naive_app.client.chat_postMessage(channel=channel, text=with_retrieval(*desk.naive_reply(subject, question)))
         return
 
     mentioned = f"<@{RECALL_USER}>" in text
@@ -117,8 +117,15 @@ def handle(kind: str, event: dict) -> None:
         if question.lower().startswith(("update", "correction")) and changes:
             reply = "Got it:\n" + "\n".join(f"• {c.describe()}" for c in changes)
         else:
-            reply = desk.recall_reply(subject, question)
+            reply = with_retrieval(*desk.recall_reply(subject, question))
         recall_app.client.chat_postMessage(channel=channel, text=reply)
+
+
+def with_retrieval(retrieval: str | None, answer: str) -> str:
+    """Show what came out of memory above the answer, when SHOW_RETRIEVAL is on."""
+    if not retrieval or not SHOW_RETRIEVAL:
+        return answer
+    return f"*Retrieved from memory* (exactly what the model saw):\n```{retrieval}```\n{answer}"
 
 
 def relevant(event: dict) -> bool:

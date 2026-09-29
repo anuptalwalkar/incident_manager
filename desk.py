@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta
 
 from llm import LLM
-from memory import Change, IncidentMemory
+from memory import Change, IncidentMemory, parse_time
 from naive import NaiveMemory
 
 STATUS_REQUEST = ("Draft a customer-facing status page update: two or three sentences covering "
@@ -36,28 +36,33 @@ class Desk:
 
     # ---- questions ---------------------------------------------------------
 
-    def recall_reply(self, subject: str, text: str) -> str:
+    def recall_reply(self, subject: str, text: str) -> tuple[str | None, str]:
+        """(retrieval, answer). retrieval is exactly the context the model saw, or
+        None when the reply is itself a direct read of Recall."""
         ask = text.strip()
         low = ask.lower()
         if "postmortem" in low or "timeline" in low:
-            return self.postmortem(subject)
+            return None, self.postmortem(subject)
         when = parse_when(low)
         if when is not None:
-            return self.believed_at(subject, when)
+            return None, self.believed_at(subject, when)
         if low in {"facts", "status", "state", "current state"}:
-            return self.fact_sheet(subject)
+            return None, self.fact_sheet(subject)
         context = self._recall_context(subject)
         question = STATUS_REQUEST if _wants_status(low) else ask
-        return self.llm.answer(context, question)
+        return context, self.llm.answer(context, question)
 
-    def naive_reply(self, subject: str, text: str) -> str:
+    def naive_reply(self, subject: str, text: str) -> tuple[str, str]:
+        """(retrieval, answer), with retrieval exactly the context the model saw."""
         ask = text.strip()
         query = "suspected root cause affected region service severity mitigation customer impact" \
             if _wants_status(ask.lower()) else ask
-        notes = self.naive.search(subject, query)
-        context = "Relevant memories:\n" + "\n".join(f"- {n}" for n in notes) if notes else "(no memories)"
+        hits = self.naive.search_scored(subject, query)
+        context = ("Relevant memories (most similar first):\n"
+                   + "\n".join(f"- {note}   [similarity {score:.2f}]" for note, score in hits)
+                   if hits else "(no memories)")
         question = STATUS_REQUEST if _wants_status(ask.lower()) else ask
-        return self.llm.answer(context, question)
+        return context, self.llm.answer(context, question)
 
     # ---- Recall-only views -------------------------------------------------
 
@@ -91,7 +96,10 @@ class Desk:
         return "\n".join(lines)
 
     def _recall_context(self, subject: str) -> str:
-        sheet = self.fact_sheet(subject).replace("*", "").replace("• ", "- ")
+        rows = self.memory.beliefs(subject)
+        sheet = "\n".join(
+            f"- {b.predicate} = {b.value}   [recorded {parse_time(b.observed_at).strftime('%H:%M:%S')}, "
+            f"{b.source}, {b.event_id}]" for b in rows) or "(none recorded)"
         recent = [c for c in self.changes.get(subject, []) if c.kind in {"changed", "removed"}][-5:]
         context = "Current incident facts (latest values, corrections already applied):\n" + sheet
         if recent:

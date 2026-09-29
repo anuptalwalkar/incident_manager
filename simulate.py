@@ -35,7 +35,11 @@ def main() -> None:
                 retrieval, reply = desk.recall_reply(subject, question)
                 _show("recall-bot", "32", retrieval, reply)
                 if "{naive}" in step["text"]:
-                    _show("naive-bot ", "33", *desk.naive_reply(subject, question))
+                    naive_retrieval, naive_answer = desk.naive_reply(subject, question)
+                    _show("naive-bot ", "33", naive_retrieval, naive_answer)
+                    if retrieval is not None:
+                        verdict = desk.judge.verdict(subject, question, reply, naive_answer)
+                        print(f"  \033[35mjudge:\033[0m {_indent(desk.judge.render(verdict))}")
                 continue
             for change in desk.ingest(subject, person, text):
                 print(f"  \033[2m[recall] {change.describe()}\033[0m")

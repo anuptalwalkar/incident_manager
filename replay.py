@@ -65,7 +65,10 @@ def main() -> None:
             continue
         posted = replay.chat_postMessage(channel=channel, text=text, username=person["name"], icon_emoji=person["icon"])
         if step.get("ask"):
-            expected = {recall_auth["bot_id"]} | ({naive_auth["bot_id"]} if "{naive}" in step["text"] else set())
+            both = "{naive}" in step["text"]
+            expected = {recall_auth["bot_id"]} | ({naive_auth["bot_id"]} if both else set())
+            if both and os.environ.get("JUDGE", "1") != "0":
+                expected.add("judge")
             wait_for_replies(reader, channel, posted["ts"], expected)
 
 
@@ -75,7 +78,8 @@ def wait_for_replies(reader: WebClient, channel: str, after: str, bots: set[str]
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         history = reader.conversations_history(channel=channel, oldest=after, limit=50)["messages"]
-        if bots <= {m.get("bot_id") for m in history}:
+        seen = {m.get("bot_id") for m in history} | {"judge" for m in history if m.get("username") == "Judge"}
+        if bots <= seen:
             print(" done")
             return
         time.sleep(1)

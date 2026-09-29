@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
+from judge import Judge
 from llm import LLM
 from memory import Change, IncidentMemory, parse_time
 from naive import NaiveMemory
@@ -21,12 +22,14 @@ class Desk:
         self.memory = IncidentMemory(data_dir)
         self.naive = NaiveMemory()
         self.llm = LLM()
+        self.judge = Judge(self.llm)
         self.changes: dict[str, list[Change]] = {}
 
     # ---- every message -----------------------------------------------------
 
     def ingest(self, subject: str, author: str, text: str, source: dict | None = None) -> list[Change]:
         """Extract facts from one channel message and file them in both memories."""
+        self.judge.record(subject, author, text)
         current = self.memory.facts(subject)
         proposal = self.llm.extract(self.memory.registry, current, author, text)
         self.naive.add(subject, proposal)

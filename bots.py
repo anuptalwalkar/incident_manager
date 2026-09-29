@@ -23,6 +23,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_sdk import WebClient
 
 from desk import Desk
 
@@ -34,6 +35,7 @@ IGNORED_SUBTYPES = {"message_changed", "message_deleted", "channel_join", "chann
                     "channel_topic", "channel_purpose", "pinned_item"}
 STATE = Path("data/state.json")
 SHOW_RETRIEVAL = os.environ.get("SHOW_RETRIEVAL", "1") != "0"
+JUDGE_NAME = "Judge"
 
 recall_app = App(token=os.environ["RECALL_BOT_TOKEN"])
 naive_app = App(token=os.environ["NAIVE_BOT_TOKEN"])
@@ -42,7 +44,12 @@ naive_auth = naive_app.client.auth_test()
 RECALL_USER, NAIVE_USER = recall_auth["user_id"], naive_auth["user_id"]
 OUR_BOTS = {recall_auth["bot_id"], naive_auth["bot_id"]}
 
+# The judge posts through the replay app, which may set its display name.
+judge_client = WebClient(token=os.environ["REPLAY_BOT_TOKEN"]) \
+    if os.environ.get("REPLAY_BOT_TOKEN") and os.environ.get("JUDGE", "1") != "0" else None
+
 desk = Desk()
+answers: dict[tuple[str, str], dict[str, str]] = {}
 work: queue.Queue = queue.Queue()
 names: dict[str, str] = {}
 
@@ -96,7 +103,9 @@ def handle(kind: str, event: dict) -> None:
     question = strip_mentions(text)
 
     if kind == "naive":
-        naive_app.client.chat_postMessage(channel=channel, text=with_retrieval(*desk.naive_reply(subject, question)))
+        retrieval, answer = desk.naive_reply(subject, question)
+        naive_app.client.chat_postMessage(channel=channel, text=with_retrieval(retrieval, answer))
+        collect(event, subject, question, "naive", answer)
         return
 
     mentioned = f"<@{RECALL_USER}>" in text
@@ -116,9 +125,25 @@ def handle(kind: str, event: dict) -> None:
     if mentioned:
         if question.lower().startswith(("update", "correction")) and changes:
             reply = "Got it:\n" + "\n".join(f"• {c.describe()}" for c in changes)
+            recall_app.client.chat_postMessage(channel=channel, text=reply)
         else:
-            reply = with_retrieval(*desk.recall_reply(subject, question))
-        recall_app.client.chat_postMessage(channel=channel, text=reply)
+            retrieval, answer = desk.recall_reply(subject, question)
+            recall_app.client.chat_postMessage(channel=channel, text=with_retrieval(retrieval, answer))
+            if retrieval is not None:  # direct reads (postmortem, as-of) are not judged
+                collect(event, subject, question, "recall", answer)
+
+
+def collect(event: dict, subject: str, question: str, bot: str, answer: str) -> None:
+    """Once both bots have answered the same question, ask the judge."""
+    key = (event["channel"], event["ts"])
+    got = answers.setdefault(key, {})
+    got[bot] = answer
+    if judge_client is None or not {"recall", "naive"} <= got.keys():
+        return
+    answers.pop(key)
+    verdict = desk.judge.verdict(subject, question, got["recall"], got["naive"])
+    judge_client.chat_postMessage(channel=event["channel"], text=desk.judge.render(verdict),
+                                  username=JUDGE_NAME, icon_emoji=":scales:")
 
 
 def with_retrieval(retrieval: str | None, answer: str) -> str:
@@ -131,6 +156,7 @@ def with_retrieval(retrieval: str | None, answer: str) -> str:
 def relevant(event: dict) -> bool:
     return (event.get("subtype") not in IGNORED_SUBTYPES
             and event.get("bot_id") not in OUR_BOTS
+            and event.get("username") != JUDGE_NAME
             and bool(event.get("text")))
 
 

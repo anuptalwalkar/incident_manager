@@ -66,6 +66,19 @@ class LLM:
             return {"statements": [], "removals": []}
         return {"statements": proposal.get("statements") or [], "removals": proposal.get("removals") or []}
 
+    def complete_json(self, system: str, user: str, max_tokens: int = 500) -> dict:
+        out = self.client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        ).choices[0].message.content
+        try:
+            return json.loads(out or "{}")
+        except json.JSONDecodeError:
+            return {}
+
     def answer(self, context: str, question: str) -> str:
         return self.client.chat.completions.create(
             model=self.model,

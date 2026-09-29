@@ -18,6 +18,7 @@
     {"who": "dana", "text": "{recall} {naive} draft a status page update", "ask": true},
     {"who": "leo", "text": "Rolling back the CoreDNS config now."},
     {"who": "raj", "text": "Rollback done. Checkout latency is back to normal, monitoring for 15 minutes."},
-    {"who": "leo", "text": "{recall} postmortem", "ask": true}
+    {"who": "leo", "text": "{recall} postmortem", "ask": true},
+    {"who": "leo", "text": "{naive} postmortem", "ask": true}
   ]
 }

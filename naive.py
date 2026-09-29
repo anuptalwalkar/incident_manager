@@ -1,18 +1,23 @@
 """The comparison: append-only similarity memory.
 
 This is how many agent memories work: every extracted fact is kept as a
-sentence, and a question retrieves the most similar sentences. Nothing is
-replaced or removed and results are ordered by similarity, not time, so the
-model sees an early wrong guess next to its correction with no way to tell
-which came last. It gets the same extractor output and the same answer model
-as the Recall side.
+sentence with an embedding, and a question retrieves the most similar
+sentences by cosine similarity. Nothing is replaced or removed and results are
+ordered by similarity, not time, so the model sees an early wrong guess next to
+its correction with no way to tell which came last. It gets the same extractor
+output and the same answer model as the Recall side.
+
+NAIVE_K sets how many notes a question retrieves (default 10).
 """
 
 from __future__ import annotations
 
 import math
-import re
+import os
 from collections import defaultdict
+from typing import Callable
+
+Embed = Callable[[list[str]], list[list[float]]]
 
 LABELS = {
     "suspected_cause": "suspected root cause",
@@ -25,105 +30,113 @@ LABELS = {
 }
 
 
-def _tokens(text: str) -> set[str]:
-    words = re.findall(r"[a-z0-9][a-z0-9.-]*", text.lower())
-    return {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words}
+def _notes(proposal: dict) -> list[dict]:
+    """One sentence per proposed statement or removal."""
+    notes = []
+    for s in proposal.get("statements") or []:
+        label = LABELS.get(s.get("predicate"), str(s.get("predicate")).replace("_", " "))
+        notes.append({"predicate": s.get("predicate"), "text": f"{label}: {s.get('value')}"})
+    for r in proposal.get("removals") or []:
+        label = LABELS.get(r.get("predicate"), str(r.get("predicate")).replace("_", " "))
+        notes.append({"predicate": r.get("predicate"), "text": f"{label} {r.get('value')} no longer applies"})
+    return notes
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return dot / norm if norm else 0.0
 
 
 class NaiveMemory:
-    def __init__(self, k: int = 5):
+    def __init__(self, embed: Embed, k: int = 10):
+        self.embed = embed
         self.k = k
-        self._notes: dict[str, list[str]] = defaultdict(list)
+        self._notes: dict[str, list[tuple[str, list[float]]]] = defaultdict(list)
 
     def add(self, subject: str, proposal: dict) -> None:
-        for s in proposal.get("statements") or []:
-            label = LABELS.get(s.get("predicate"), str(s.get("predicate")).replace("_", " "))
-            self._notes[subject].append(f"{label}: {s.get('value')}")
-        for r in proposal.get("removals") or []:
-            label = LABELS.get(r.get("predicate"), str(r.get("predicate")).replace("_", " "))
-            self._notes[subject].append(f"{label} {r.get('value')} no longer applies")
+        texts = [n["text"] for n in _notes(proposal)]
+        self._notes[subject].extend(zip(texts, self.embed(texts)))
 
     def search(self, subject: str, query: str) -> list[str]:
         return [note for note, _ in self.search_scored(subject, query)]
 
     def search_scored(self, subject: str, query: str) -> list[tuple[str, float]]:
         notes = self._notes.get(subject, [])
-        if not notes:
+        if not notes or not query.strip():
             return []
-        docs = [_tokens(n) for n in notes]
-        df: dict[str, int] = defaultdict(int)
-        for d in docs:
-            for t in d:
-                df[t] += 1
-        q = _tokens(query)
-        scored = []
-        for i, d in enumerate(docs):
-            score = sum(math.log(1 + len(docs) / df[t]) for t in q & d)
-            if score > 0:
-                scored.append((score, i))
-        scored.sort(key=lambda x: -x[0])
-        return [(notes[i], score) for score, i in scored[: self.k]]
+        q = self.embed([query])[0]
+        scored = sorted(((text, _cosine(q, vec)) for text, vec in notes), key=lambda x: -x[1])
+        return scored[: self.k]
 
 
 class Neo4jNaiveMemory:
     """The same append-only similarity memory, stored in Neo4j.
 
-    Each extracted fact becomes a (:Note) node linked to its (:Incident), and
-    retrieval uses Neo4j's full-text index (Lucene scoring). The design is what
-    makes it naive, not the database: notes are only ever added, and a question
-    gets the most similar ones regardless of which came last.
+    Each extracted fact becomes a (:Note) node with an embedding, linked to its
+    (:Incident), and retrieval ranks an incident's notes by cosine similarity.
+    The design is what makes it naive, not the database: notes are only ever
+    added, and a question gets the most similar ones regardless of which came
+    last.
     """
 
-    def __init__(self, uri: str, user: str, password: str, k: int = 5):
+    def __init__(self, uri: str, user: str, password: str, embed: Embed, k: int = 10):
         from neo4j import GraphDatabase
 
+        self.embed = embed
         self.k = k
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.driver.verify_connectivity()
-        self.driver.execute_query(
-            "CREATE FULLTEXT INDEX note_text IF NOT EXISTS FOR (n:Note) ON EACH [n.text]")
-        self.driver.execute_query("CALL db.awaitIndexes(30)")
+        self._backfill()
+
+    def _backfill(self) -> None:
+        """Embed notes written before retrieval used embeddings."""
+        records, _, _ = self.driver.execute_query(
+            "MATCH (n:Note) WHERE n.embedding IS NULL RETURN elementId(n) AS id, n.text AS text")
+        for i in range(0, len(records), 100):
+            batch = records[i:i + 100]
+            vectors = self.embed([r["text"] for r in batch])
+            self.driver.execute_query(
+                """UNWIND $rows AS row
+                   MATCH (n:Note) WHERE elementId(n) = row.id
+                   SET n.embedding = row.embedding""",
+                rows=[{"id": r["id"], "embedding": v} for r, v in zip(batch, vectors)])
 
     def add(self, subject: str, proposal: dict) -> None:
-        notes = []
-        for s in proposal.get("statements") or []:
-            label = LABELS.get(s.get("predicate"), str(s.get("predicate")).replace("_", " "))
-            notes.append({"predicate": s.get("predicate"), "text": f"{label}: {s.get('value')}"})
-        for r in proposal.get("removals") or []:
-            label = LABELS.get(r.get("predicate"), str(r.get("predicate")).replace("_", " "))
-            notes.append({"predicate": r.get("predicate"), "text": f"{label} {r.get('value')} no longer applies"})
-        if notes:
-            self.driver.execute_query(
-                """MERGE (i:Incident {id: $subject})
-                   WITH i UNWIND $notes AS note
-                   CREATE (i)-[:HAS_NOTE]->(:Note {subject: $subject, predicate: note.predicate,
-                                                   text: note.text, created: datetime()})""",
-                subject=subject, notes=notes)
+        notes = _notes(proposal)
+        if not notes:
+            return
+        for note, vector in zip(notes, self.embed([n["text"] for n in notes])):
+            note["embedding"] = vector
+        self.driver.execute_query(
+            """MERGE (i:Incident {id: $subject})
+               WITH i UNWIND $notes AS note
+               CREATE (i)-[:HAS_NOTE]->(:Note {subject: $subject, predicate: note.predicate,
+                                               text: note.text, embedding: note.embedding,
+                                               created: datetime()})""",
+            subject=subject, notes=notes)
 
     def search(self, subject: str, query: str) -> list[str]:
         return [note for note, _ in self.search_scored(subject, query)]
 
     def search_scored(self, subject: str, query: str) -> list[tuple[str, float]]:
-        terms = sorted(_tokens(query))
-        if not terms:
+        if not query.strip():
             return []
-        lucene = " OR ".join('"' + t.replace('"', "") + '"' for t in terms)
         records, _, _ = self.driver.execute_query(
-            """CALL db.index.fulltext.queryNodes('note_text', $q) YIELD node, score
-               WHERE node.subject = $subject
-               RETURN node.text AS text, score ORDER BY score DESC LIMIT $k""",
-            q=lucene, subject=subject, k=self.k)
+            """MATCH (n:Note {subject: $subject}) WHERE n.embedding IS NOT NULL
+               WITH n, vector.similarity.cosine(n.embedding, $q) AS score
+               RETURN n.text AS text, score ORDER BY score DESC LIMIT $k""",
+            subject=subject, q=self.embed([query])[0], k=self.k)
         return [(r["text"], r["score"]) for r in records]
 
     def close(self) -> None:
         self.driver.close()
 
 
-def open_naive_memory():
+def open_naive_memory(embed: Embed):
     """Neo4j when NEO4J_URI is set, otherwise in process."""
-    import os
-
+    k = int(os.environ.get("NAIVE_K", "10"))
     uri = os.environ.get("NEO4J_URI")
     if not uri:
-        return NaiveMemory()
-    return Neo4jNaiveMemory(uri, os.environ.get("NEO4J_USER", "neo4j"), os.environ["NEO4J_PASSWORD"])
+        return NaiveMemory(embed, k)
+    return Neo4jNaiveMemory(uri, os.environ.get("NEO4J_USER", "neo4j"), os.environ["NEO4J_PASSWORD"], embed, k)

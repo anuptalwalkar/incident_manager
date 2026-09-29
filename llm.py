@@ -1,7 +1,7 @@
 """Model calls: fact extraction and answers.
 
 Uses OpenRouter when OPENROUTER_API_KEY is set, otherwise the OpenAI API
-(OPENAI_API_KEY). LLM_MODEL overrides the model.
+(OPENAI_API_KEY). LLM_MODEL overrides the model and EMBED_MODEL the embedder.
 """
 
 from __future__ import annotations
@@ -40,11 +40,18 @@ class LLM:
         if os.environ.get("OPENROUTER_API_KEY"):
             self.client = OpenAI(base_url="https://openrouter.ai/api/v1",
                                  api_key=os.environ["OPENROUTER_API_KEY"])
-            default = "openai/gpt-4.1-mini"
+            default, embedder = "openai/gpt-4.1-mini", "openai/text-embedding-3-small"
         else:
             self.client = OpenAI()
-            default = "gpt-4.1-mini"
+            default, embedder = "gpt-4.1-mini", "text-embedding-3-small"
         self.model = os.environ.get("LLM_MODEL", default)
+        self.embed_model = os.environ.get("EMBED_MODEL", embedder)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        out = self.client.embeddings.create(model=self.embed_model, input=texts)
+        return [d.embedding for d in sorted(out.data, key=lambda d: d.index)]
 
     def extract(self, registry: dict, current: dict, author: str, text: str) -> dict:
         predicates = json.dumps(

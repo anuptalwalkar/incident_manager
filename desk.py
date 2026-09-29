@@ -20,8 +20,8 @@ STATUS_REQUEST = ("Draft a customer-facing status page update: two or three sent
 class Desk:
     def __init__(self, data_dir: str = "data"):
         self.memory = IncidentMemory(data_dir)
-        self.naive = open_naive_memory()
         self.llm = LLM()
+        self.naive = open_naive_memory(self.llm.embed)
         self.judge = Judge(self.llm)
         self.changes: dict[str, list[Change]] = {}
 

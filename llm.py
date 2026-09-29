@@ -22,6 +22,7 @@ Rules:
 - evidence must be an exact, contiguous quote copied character for character from the message.
 - For a single-valued predicate, a new value replaces the old one, so just state the new value.
 - For multi-valued predicates, when the message says a current value no longer applies (recovered, ruled out, not affected), put it in removals using the exact current value.
+- When a message says impact has ended or service is back to normal, also update customer_impact to say so.
 - Questions, requests to bots, and chatter produce no statements.
 
 Reply in JSON as {{"statements": [{{"predicate": "...", "value": "...", "evidence": "..."}}], "removals": [{{"predicate": "...", "value": "..."}}]}}."""

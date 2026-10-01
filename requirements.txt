@@ -3,3 +3,4 @@ openai>=1.40
 slack_bolt>=1.20
 python-dotenv>=1.0
 neo4j>=5.20
+mem0ai>=2.2

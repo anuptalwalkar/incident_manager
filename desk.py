@@ -32,7 +32,7 @@ class Desk:
         self.judge.record(subject, author, text)
         current = self.memory.facts(subject)
         proposal = self.llm.extract(self.memory.registry, current, author, text)
-        self.naive.add(subject, proposal)
+        self.naive.add(subject, proposal, author, text)
         changes = self.memory.apply(subject, author, text, proposal, source)
         self.changes.setdefault(subject, []).extend(changes)
         return changes
@@ -103,7 +103,12 @@ class Desk:
         sheet = "\n".join(
             f"- {b.predicate} = {b.value}   [recorded {parse_time(b.observed_at).strftime('%H:%M:%S')}, "
             f"{b.source}, {b.event_id}]" for b in rows) or "(none recorded)"
-        recent = [c for c in self.changes.get(subject, []) if c.kind in {"changed", "removed"}][-5:]
+        # Only corrections that still hold: a region that was removed and came back,
+        # or a value that has since been replaced again, would contradict the sheet.
+        live = {(b.predicate, str(b.value)) for b in rows}
+        recent = [c for c in self.changes.get(subject, [])
+                  if (c.kind == "changed" and (c.predicate, str(c.value)) in live)
+                  or (c.kind == "removed" and (c.predicate, str(c.value)) not in live)][-5:]
         context = "Current incident facts (latest values, corrections already applied):\n" + sheet
         if recent:
             context += "\n\nRecent corrections:\n" + "\n".join(

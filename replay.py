@@ -72,7 +72,7 @@ def main() -> None:
             wait_for_replies(reader, channel, posted["ts"], expected)
 
 
-def wait_for_replies(reader: WebClient, channel: str, after: str, bots: set[str], timeout: float = 60) -> None:
+def wait_for_replies(reader: WebClient, channel: str, after: str, bots: set[str], timeout: float = 180) -> None:
     """Hold the next step until each asked bot has answered, so answers stay in order."""
     print("  waiting for the bots to answer...", end="", flush=True)
     deadline = time.monotonic() + timeout

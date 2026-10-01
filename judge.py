@@ -20,7 +20,9 @@ Judge each answer on facts only, not on style or length:
 - STALE: it uses at least one fact that a later message corrected or retracted.
 - WRONG: it states something the transcript never said, or does not answer what was asked.
 
-Reply in JSON: {"A": {"verdict": "CURRENT|STALE|WRONG", "reason": "..."}, "B": {"verdict": "...", "reason": "..."}}
+First work out the latest state by reading the transcript top to bottom and applying every message in order: for each of suspected cause, severity, incident commander, mitigation and each region, the last message that mentions it decides. A region is affected only if the last message about that region says so. Then judge both answers against that state, not against any single message.
+
+Reply in JSON: {"state": {"suspected_cause": "...", "severity": "...", "incident_commander": "...", "mitigation": "...", "regions_affected": ["..."], "regions_recovered": ["..."]}, "A": {"verdict": "CURRENT|STALE|WRONG", "reason": "..."}, "B": {"verdict": "...", "reason": "..."}}
 Each reason is one short sentence. For STALE, name the out-of-date fact and the time and person of the message that replaced it."""
 
 ICONS = {"CURRENT": ":white_check_mark:", "STALE": ":warning:", "WRONG": ":x:"}
@@ -48,7 +50,7 @@ class Judge:
         lines = "\n".join(f"[{t.strftime('%H:%M:%S')}] {who}: {text}" for t, who, text in self.transcript[subject])
         user = (f"Transcript:\n{lines}\n\nQuestion asked: {question}\n\n"
                 f"Answer A:\n{a}\n\nAnswer B:\n{b}")
-        out = self.llm.complete_json(JUDGE_PROMPT, user)
+        out = self.llm.complete_json(JUDGE_PROMPT, user, max_tokens=700, model=self.llm.judge_model)
         first, second = out.get("A") or {}, out.get("B") or {}
         recall, naive = (second, first) if flip else (first, second)
         score = self.scores[subject]

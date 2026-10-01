@@ -4,6 +4,7 @@
     "raj": {"name": "Raj (on-call)", "icon": ":pager:"},
     "maya": {"name": "Maya (SRE)", "icon": ":wrench:"},
     "leo": {"name": "Leo (incident commander)", "icon": ":rotating_light:"},
+    "priya": {"name": "Priya (SRE lead)", "icon": ":shield:"},
     "dana": {"name": "Dana (VP Eng)", "icon": ":briefcase:"}
   },
   "steps": [
@@ -15,9 +16,22 @@
     {"who": "maya", "text": "Correction: orders-db is healthy, the pool saturation is a symptom. Root cause is DNS: resolver timeouts since this morning's CoreDNS config change.", "mark": "before_correction"},
     {"who": "raj", "text": "eu-west-1 has recovered, that was an unrelated blip. Only us-east-1 is affected."},
     {"who": "dana", "text": "{recall} {naive} what's the root cause and which regions are affected?", "ask": true},
-    {"who": "dana", "text": "{recall} {naive} draft a status page update", "ask": true},
     {"who": "leo", "text": "Rolling back the CoreDNS config now."},
-    {"who": "raj", "text": "Rollback done. Checkout latency is back to normal, monitoring for 15 minutes."},
+    {"who": "raj", "text": "Rollback is done but latency has not moved, still 4s."},
+    {"who": "maya", "text": "DNS was a red herring, the resolvers were fine after all. The TLS cert on payments-gateway expired at 14:00 and handshakes are failing. That is the cause."},
+    {"who": "maya", "text": "Rotating the cert now, the new one is going out region by region."},
+    {"who": "raj", "text": "ap-southeast-2 is seeing checkout failures now as well."},
+    {"who": "leo", "text": "I have to drop for a customer call. Priya is incident commander from here."},
+    {"who": "priya", "text": "Ack, I have command. Payment retries are getting through now, so downgrading to SEV2."},
+    {"who": "raj", "text": "eu-west-1 is failing again, same cert."},
+    {"who": "dana", "text": "{recall} {naive} who is incident commander, what severity are we at, what's the root cause and which regions are affected?", "ask": true},
+    {"who": "maya", "text": "New cert is deployed in ap-southeast-2 and eu-west-1, both recovered. us-east-1 is still rolling out."},
+    {"who": "priya", "text": "Too early on eu-west-1, two nodes still show handshake errors. eu-west-1 is still affected."},
+    {"who": "dana", "text": "{recall} {naive} which regions are still affected right now?", "ask": true},
+    {"who": "dana", "text": "{recall} {naive} draft a status page update", "ask": true},
+    {"who": "priya", "text": "us-east-1 and eu-west-1 are clean now. Cert is rotated everywhere, monitoring for 15 minutes."},
+    {"who": "leo", "text": "Back from the call. Taking incident commander back from Priya."},
+    {"who": "dana", "text": "{recall} {naive} who is incident commander, what severity are we at, and is any region still affected?", "ask": true},
     {"who": "leo", "text": "{recall} postmortem", "ask": true},
     {"who": "leo", "text": "{naive} postmortem", "ask": true}
   ]

@@ -1,7 +1,8 @@
 """Model calls: fact extraction and answers.
 
 Uses OpenRouter when OPENROUTER_API_KEY is set, otherwise the OpenAI API
-(OPENAI_API_KEY). LLM_MODEL overrides the model and EMBED_MODEL the embedder.
+(OPENAI_API_KEY). LLM_MODEL overrides the model, EMBED_MODEL the embedder and
+JUDGE_MODEL the judge's model.
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ class LLM:
             default, embedder = "gpt-4.1-mini", "text-embedding-3-small"
         self.model = os.environ.get("LLM_MODEL", default)
         self.embed_model = os.environ.get("EMBED_MODEL", embedder)
+        # The judge reads a long transcript in order, which the small model gets wrong.
+        self.judge_model = os.environ.get("JUDGE_MODEL", default.replace("gpt-4.1-mini", "gpt-4.1"))
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -73,9 +76,9 @@ class LLM:
             return {"statements": [], "removals": []}
         return {"statements": proposal.get("statements") or [], "removals": proposal.get("removals") or []}
 
-    def complete_json(self, system: str, user: str, max_tokens: int = 500) -> dict:
+    def complete_json(self, system: str, user: str, max_tokens: int = 500, model: str | None = None) -> dict:
         out = self.client.chat.completions.create(
-            model=self.model,
+            model=model or self.model,
             temperature=0,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},

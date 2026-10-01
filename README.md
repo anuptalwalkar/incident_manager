@@ -68,3 +68,13 @@ python replay.py               # terminal 2, Enter posts the next message
 
 Anyone in the channel can post updates or ask the bots questions; live
 messages take the same path as the replay.
+
+## naive-bot on Mem0
+
+By default naive-bot keeps its notes in process (or in Neo4j when `NEO4J_URI`
+is set). To run it on [Mem0](https://github.com/mem0ai/mem0) instead, set
+`NAIVE_BACKEND=mem0` in `.env`. Mem0 runs locally and stores under
+`data/mem0`. It reads each raw channel message and decides for itself what to
+add, update or delete, so this is naive-bot with a real memory product behind
+it, not append-only notes. `MEM0_INFER=0` turns that off and stores the
+extractor's notes as they are.

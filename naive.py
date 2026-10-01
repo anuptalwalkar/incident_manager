@@ -8,6 +8,12 @@ its correction with no way to tell which came last. It gets the same extractor
 output and the same answer model as the Recall side.
 
 NAIVE_K sets how many notes a question retrieves (default 10).
+
+NAIVE_BACKEND=mem0 swaps the store for Mem0 (open source, local). Mem0 is not
+append-only: by default it reads each raw channel message and decides for
+itself what to add, update or delete, so this is the comparison against a
+real memory product rather than a strawman. MEM0_INFER=0 turns that off and
+stores the extractor's notes as they are.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ class NaiveMemory:
         self.k = k
         self._notes: dict[str, list[tuple[str, list[float]]]] = defaultdict(list)
 
-    def add(self, subject: str, proposal: dict) -> None:
+    def add(self, subject: str, proposal: dict, author: str = "", text: str = "") -> None:
         texts = [n["text"] for n in _notes(proposal)]
         self._notes[subject].extend(zip(texts, self.embed(texts)))
 
@@ -102,7 +108,7 @@ class Neo4jNaiveMemory:
                    SET n.embedding = row.embedding""",
                 rows=[{"id": r["id"], "embedding": v} for r, v in zip(batch, vectors)])
 
-    def add(self, subject: str, proposal: dict) -> None:
+    def add(self, subject: str, proposal: dict, author: str = "", text: str = "") -> None:
         notes = _notes(proposal)
         if not notes:
             return
@@ -133,10 +139,71 @@ class Neo4jNaiveMemory:
         self.driver.close()
 
 
+class Mem0NaiveMemory:
+    """naive-bot on Mem0, running locally (Qdrant on disk under data/mem0).
+
+    With infer on, Mem0 gets the raw channel message and runs its own
+    extraction and its own add/update/delete pass; the Recall extractor's
+    proposal is ignored. With infer off, the extractor's notes are stored
+    verbatim and Mem0 is only the vector store. Either way a question gets the
+    k most similar memories, with Mem0's own scores.
+    """
+
+    INSTRUCTIONS = ("These are messages from a production incident channel. Keep the incident's facts: "
+                    "suspected root cause, severity, incident commander, mitigation status, customer impact, "
+                    "affected regions and affected services. Ignore questions, requests to bots and chatter.")
+
+    def __init__(self, k: int = 10, data_dir: str = "data/mem0", infer: bool = True):
+        os.environ.setdefault("MEM0_TELEMETRY", "false")  # mem0 phones home unless told not to
+        from mem0 import Memory
+
+        self.k = k
+        self.infer = infer
+        os.makedirs(data_dir, exist_ok=True)
+        if os.environ.get("OPENROUTER_API_KEY"):
+            base = {"api_key": os.environ["OPENROUTER_API_KEY"], "openai_base_url": "https://openrouter.ai/api/v1"}
+            llm, embedder = "openai/gpt-4.1-mini", "openai/text-embedding-3-small"
+        else:
+            base = {}
+            llm, embedder = "gpt-4.1-mini", "text-embedding-3-small"
+        self.memory = Memory.from_config({
+            "llm": {"provider": "openai",
+                    "config": {"model": os.environ.get("LLM_MODEL", llm), "temperature": 0}},
+            "embedder": {"provider": "openai",
+                         "config": {"model": os.environ.get("EMBED_MODEL", embedder), **base}},
+            "vector_store": {"provider": "qdrant",
+                             "config": {"collection_name": "naive_bot", "path": os.path.join(data_dir, "qdrant"),
+                                        "on_disk": True}},
+            "history_db_path": os.path.join(data_dir, "history.db"),
+            "custom_instructions": self.INSTRUCTIONS,
+        })
+
+    def add(self, subject: str, proposal: dict, author: str = "", text: str = "") -> None:
+        if self.infer:
+            if text.strip():
+                self.memory.add([{"role": "user", "content": f"{author}: {text}"}], user_id=subject)
+            return
+        for note in _notes(proposal):
+            self.memory.add(note["text"], user_id=subject, infer=False)
+
+    def search(self, subject: str, query: str) -> list[str]:
+        return [note for note, _ in self.search_scored(subject, query)]
+
+    def search_scored(self, subject: str, query: str) -> list[tuple[str, float]]:
+        if not query.strip():
+            return []
+        out = self.memory.search(query, filters={"user_id": subject}, top_k=self.k, threshold=0.0)
+        return [(r["memory"], float(r.get("score") or 0.0)) for r in out.get("results", [])]
+
+
 def open_naive_memory(embed: Embed):
-    """Neo4j when NEO4J_URI is set, otherwise in process."""
+    """NAIVE_BACKEND picks the store: mem0, neo4j or memory. Unset, it is
+    Neo4j when NEO4J_URI is set, otherwise in process."""
     k = int(os.environ.get("NAIVE_K", "10"))
+    backend = os.environ.get("NAIVE_BACKEND", "").strip().lower()
+    if backend == "mem0":
+        return Mem0NaiveMemory(k, os.environ.get("MEM0_DIR", "data/mem0"), os.environ.get("MEM0_INFER", "1") != "0")
     uri = os.environ.get("NEO4J_URI")
-    if not uri:
+    if backend == "memory" or not uri:
         return NaiveMemory(embed, k)
     return Neo4jNaiveMemory(uri, os.environ.get("NEO4J_USER", "neo4j"), os.environ["NEO4J_PASSWORD"], embed, k)

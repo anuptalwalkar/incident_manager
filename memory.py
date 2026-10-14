@@ -56,8 +56,10 @@ class IncidentMemory:
     def __init__(self, data_dir: str | Path = "data"):
         self.data_dir = Path(data_dir).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        # typed=True: incidents are typed facts from the registry below;
+        # recall 0.18 serves the text tools without it.
         self.client = Client(local_dir=str(self.data_dir / "recall"),
-                             env={"POLIGN_PREDICATES": str(PREDICATES)})
+                             env={"POLIGN_PREDICATES": str(PREDICATES)}, typed=True)
         # "note" is added by Recall itself; incidents only use the typed facts.
         self.registry = {p["predicate"]: p for p in self.client.predicates()
                          if p["predicate"] != "note"}
